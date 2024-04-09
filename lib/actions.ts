@@ -32,15 +32,7 @@ export async function getPaymentInfo(
   }
 
   const paidField = getPaidField(member);
-  if (!paidField) {
-    return {
-      type: "error",
-      message:
-        "Die Gruppe muss zuerst konfiguriert und ein Bezahlt-Feld hinzugefügt werden.",
-    };
-  }
-
-  if (paidField.value === "1") {
+  if (paidField?.value === "1") {
     return { type: "error", message: "Du hast bereits bezahlt, vielen Dank!" };
   }
 

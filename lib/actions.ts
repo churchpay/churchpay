@@ -5,6 +5,8 @@ import { getEnvForDomain } from "@/lib/domainenv";
 import { getPayPalClient } from "@/lib/paypal";
 import { PaymentInfo } from "@/lib/types";
 import {
+  extractEuroAmount,
+  getAmountField,
   getChurchToolsClient,
   getMember,
   getPaidField,
@@ -36,10 +38,29 @@ export async function getPaymentInfo(
     return { type: "error", message: "Du hast bereits bezahlt, vielen Dank!" };
   }
 
+  const amountField = getAmountField(member);
+  if (!amountField?.value) {
+    return {
+      type: "error",
+      message:
+        "Leider kann ich den Zahlungsbetrag nicht bestimmen. Es fehlt das Feld 'Betrag'.",
+    };
+  }
+
+  const amount = extractEuroAmount(amountField.value);
+  if (!amount) {
+    return {
+      type: "error",
+      message:
+        "Leider kann ich den Zahlungsbetrag nicht bestimmen. Der Betrag steht nicht im Feld 'Betrag'.",
+    };
+  }
+
   return {
     type: "data",
     groupName: member.group.title,
     clientId,
+    amount,
   };
 }
 
@@ -50,6 +71,12 @@ export async function createPayPalPayment(
 ) {
   try {
     const client = getPayPalClient(domain);
+    const paymentInfo = await getPaymentInfo(domain, groupId, personId);
+    if (paymentInfo.type === "error") {
+      console.error(paymentInfo.message);
+      throw new Error(paymentInfo.message);
+    }
+
     const createRequest = new orders.OrdersCreateRequest();
     createRequest.headers["Prefer"] = "return=representation";
     createRequest.requestBody({
@@ -58,7 +85,7 @@ export async function createPayPalPayment(
         {
           amount: {
             currency_code: "EUR",
-            value: "20", // TODO: Set price
+            value: paymentInfo.amount.toFixed(2),
           },
         },
       ],
@@ -94,8 +121,6 @@ export async function capturePayPalPayment(
   orderId: string,
 ) {
   try {
-    // TODO: Check if order price is correct since the user could alter domain, groupId or personId
-
     const client = getPayPalClient(domain);
     const captureRequest = new orders.OrdersCaptureRequest(orderId);
     const response = await client!.execute(captureRequest);

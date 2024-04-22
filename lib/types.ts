@@ -46,6 +46,26 @@ export interface MemberField {
   sortKey: number;
 }
 
+export interface GroupMemberField {
+  type: "group" | "person";
+  field: {
+    id: number;
+    groupId: number;
+    name: string;
+    fieldName: string;
+    note: string;
+    sortKey: number;
+    fieldTypeCode: string;
+    fieldTypeId: number;
+    securityLevel: number;
+    defaultValue: string;
+    maxLength: number;
+    options: never[];
+    useInRegistrationForm: boolean;
+    requiredInRegistrationForm: boolean;
+  };
+}
+
 export interface PaymentInfoError {
   type: "error";
   message: string;
@@ -55,6 +75,7 @@ export interface PaymentInfoData {
   type: "data";
   groupName: string;
   clientId: string;
+  amount: number;
 }
 
 export type PaymentInfo = PaymentInfoError | PaymentInfoData;

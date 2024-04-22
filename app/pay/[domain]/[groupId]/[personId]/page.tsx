@@ -19,6 +19,7 @@ export default function PayPage() {
   const [error, setError] = useState<string | null>();
   const [success, setSuccess] = useState<boolean>(false);
   const [groupName, setGroupName] = useState<string | null>();
+  const [amount, setAmount] = useState<number | null>();
   const [clientId, setClientId] = useState<string | null>();
 
   useEffect(() => {
@@ -29,6 +30,7 @@ export default function PayPage() {
       if (paymentInfo.type === "data") {
         setGroupName(paymentInfo.groupName);
         setClientId(paymentInfo.clientId);
+        setAmount(paymentInfo.amount);
       }
     });
   }, [domain, groupId, personId]);
@@ -53,8 +55,9 @@ export default function PayPage() {
 
   if (groupName && clientId) {
     return (
-      <main className="flex flex-col items-center gap-8 px-4 py-24">
+      <main className="flex flex-col items-center px-4 py-24">
         <h1 className="text-xl font-bold">Bezahlen für {groupName}</h1>
+        <div className="mb-8 mt-2 font-bold">{amount} €</div>
         <PayPalScriptProvider
           options={{
             clientId,

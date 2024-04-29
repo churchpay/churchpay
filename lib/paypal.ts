@@ -1,7 +1,7 @@
 import checkoutNodeJssdk from "@paypal/checkout-server-sdk";
 import { getEnvForDomain } from "./domainenv";
 
-const useSandbox = true; // TODO: process.env.NODE_ENV !== "production"
+const useSandbox = process.env.NODE_ENV !== "production";
 
 export function getPayPalClient(domain: string) {
   const clientId = getEnvForDomain("PAYPAL_CLIENT_ID", domain);

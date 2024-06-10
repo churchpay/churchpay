@@ -70,8 +70,10 @@ export async function setPaid(
   personId: string,
 ) {
   const fields = await getGroupMemberFields(churchToolsClient, groupId);
-  const paidField = fields.find((field) =>
-    ["bezahlt", "paid"].includes(field.field.name.toLowerCase()),
+  const paidField = fields.find(
+    (field) =>
+      field.field?.name?.toLowerCase()?.includes("bezahlt") ||
+      field.field?.name?.toLowerCase()?.includes("paid"),
   );
   const paidFieldId = paidField?.field.id;
   if (!paidFieldId) {

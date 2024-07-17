@@ -78,6 +78,7 @@ export default function PayPage() {
                 const orderId = await createPayPalPayment(
                   domain,
                   groupId,
+                  groupName,
                   personId,
                 );
                 return orderId;

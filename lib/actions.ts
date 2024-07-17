@@ -67,6 +67,7 @@ export async function getPaymentInfo(
 export async function createPayPalPayment(
   domain: string,
   groupId: string,
+  groupName: string,
   personId: string,
 ) {
   try {
@@ -87,6 +88,8 @@ export async function createPayPalPayment(
             currency_code: "EUR",
             value: paymentInfo.amount.toFixed(2),
           },
+          description: `Anmeldung von Person #${personId} zu ${groupName} (#${groupId})`,
+          custom_id: `${groupId}-${personId}`,
         },
       ],
     });

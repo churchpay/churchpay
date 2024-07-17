@@ -36,10 +36,15 @@ export function getPaidField(member: Member) {
 }
 
 export function extractEuroAmount(input: string): number | null {
-  const match = /(\d+\s?€)/g.exec(input);
+  const match = /(\d+\s?€)/g.exec(input.replace(",", "."));
 
   if (match && match[1]) {
     const amount = parseFloat(match[1].replace("€", "").replace(" ", ""));
+    return amount;
+  }
+
+  const amount = parseFloat(input.replace(",", "."));
+  if (!isNaN(amount)) {
     return amount;
   }
 

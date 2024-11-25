@@ -1,12 +1,17 @@
 import checkoutNodeJssdk from "@paypal/checkout-server-sdk";
 import { getEnvForDomain } from "./domainenv";
 
-export function getPayPalClient(domain: string) {
+export function getPayPalClient(
+  domain: string,
+  useSandbox: boolean | undefined = undefined,
+) {
   const clientId = getEnvForDomain("PAYPAL_CLIENT_ID", domain);
   const clientSecret = getEnvForDomain("PAYPAL_CLIENT_SECRET", domain);
-  const useSandbox =
-    process.env.NODE_ENV !== "production" ||
-    getEnvForDomain("USE_SANDBOX", domain) == "1";
+  if (useSandbox === undefined) {
+    useSandbox =
+      process.env.NODE_ENV !== "production" ||
+      getEnvForDomain("USE_SANDBOX", domain) == "1";
+  }
 
   if (!clientId || !clientSecret) {
     return null;

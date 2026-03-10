@@ -56,9 +56,13 @@ export async function getPaymentInfo(
     };
   }
 
+  const { firstName, lastName } = member.person.domainAttributes;
+  const personName = `${firstName} ${lastName}`;
+
   return {
     type: "data",
     groupName: member.group.title,
+    personName,
     clientId,
     amount,
   };
@@ -88,7 +92,7 @@ export async function createPayPalPayment(
             currency_code: "EUR",
             value: paymentInfo.amount.toFixed(2),
           },
-          description: `Anmeldung von Person #${personId} zu ${groupName} (#${groupId})`,
+          description: `Anmeldung von ${paymentInfo.personName} (Person #${personId}) zu ${groupName} (#${groupId})`,
           custom_id: `${groupId}-${personId}`,
         },
       ],

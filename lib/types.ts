@@ -74,6 +74,7 @@ export interface PaymentInfoError {
 export interface PaymentInfoData {
   type: "data";
   groupName: string;
+  personName: string;
   clientId: string;
   amount: number;
 }

@@ -1,27 +1,15 @@
+import "dotenv/config";
 import { getChurchToolsClient } from "./lib/churchtools";
-import * as dotenv from "dotenv";
 
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.length !== 1) {
-    console.error("Usage: npm run test-churchtools-client -- <domain>");
-    process.exit(1);
-  }
-  dotenv.config();
-  const domain = args[0];
-  const client = getChurchToolsClient(domain);
-
-  if (!client) {
-    console.error("Invalid token or domain.");
-    process.exit(1);
-  }
-
-  try {
-    const groups = await client.getAllPages("/groups");
-    console.log("Visible groups:", groups);
-  } catch (error) {
-    console.error("Error fetching groups:", error);
-  }
+  const [domain, ...extra] = process.argv.slice(2);
+  if (!domain || extra.length) throw new Error("Invalid arguments");
+  await getChurchToolsClient(domain).get("/whoami");
+  console.log("ChurchTools credentials are valid.");
 }
-
-main();
+main().catch(() => {
+  console.error(
+    "ChurchTools connection failed. Usage: npm run test-churchtools-client -- <configured-domain>",
+  );
+  process.exitCode = 1;
+});

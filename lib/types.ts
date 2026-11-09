@@ -1,87 +1,59 @@
-export interface Person {
-  title: string;
-  domainType: "person";
-  domainIdentifier: string;
-  apiUrl: string;
-  frontendUrl: string;
-  imageUrl: string | null;
-  icon: "user";
-  domainAttributes: {
-    firstName: string;
-    lastName: string;
-    guid: string;
-  };
-}
+import { z } from "zod";
 
-export interface Group {
-  title: string;
-  domainType: "group";
-  domainIdentifier: string;
-  apiUrl: string;
-  frontendUrl: string;
-  imageUrl: string | null;
-  icon: "users";
-  domainAttributes: { note: string; groupStatusId: number; campusId: number };
-}
-
-export interface Member {
-  personId: number;
-  person: Person;
-  group: Group;
-  groupTypeRoleId: number;
-  groupMemberStatus: string;
-  memberStartDate: string;
-  registeredBy: null;
-  comment: string;
-  memberEndDate: string | null;
-  waitinglistPosition: null;
-  fields: MemberField[];
-  personFields: unknown[];
-}
-
-export interface MemberField {
-  id: number;
-  name: string;
-  value: string | string[] | null;
-  sortKey: number;
-}
-
-export interface GroupMemberFieldOption {
-  id: string;
-  name: string;
-}
-
-export interface GroupMemberField {
-  type: "group" | "person";
-  field: {
-    id: number;
-    groupId: number;
-    name: string;
-    fieldName: string;
-    note: string;
-    sortKey: number;
-    fieldTypeCode: string;
-    fieldTypeId: number;
-    securityLevel: number;
-    defaultValue: string;
-    maxLength: number;
-    options: GroupMemberFieldOption[];
-    useInRegistrationForm: boolean;
-    requiredInRegistrationForm: boolean;
-  };
-}
-
-export interface PaymentInfoError {
-  type: "error";
-  message: string;
-}
-
-export interface PaymentInfoData {
-  type: "data";
+export const memberFieldSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  value: z.union([z.string(), z.array(z.string()), z.null()]),
+});
+export const memberSchema = z.object({
+  personId: z.number().int().positive(),
+  person: z.object({
+    domainAttributes: z.object({
+      firstName: z.string().trim(),
+      lastName: z.string().trim(),
+    }),
+  }),
+  group: z.object({ title: z.string().min(1) }),
+  groupMemberStatus: z.string(),
+  fields: z.array(memberFieldSchema),
+});
+export const groupMemberFieldSchema = z.object({
+  type: z.enum(["group", "person"]),
+  field: z.object({
+    id: z.number().int().positive(),
+    name: z.string(),
+    fieldTypeCode: z.string(),
+    options: z
+      .array(
+        z.object({ id: z.union([z.string(), z.number()]), name: z.string() }),
+      )
+      .nullish(),
+  }),
+});
+export type MemberField = z.infer<typeof memberFieldSchema>;
+export type GroupMemberField = z.infer<typeof groupMemberFieldSchema>;
+export type Quote = {
   groupName: string;
   personName: string;
-  clientId: string;
-  amount: number;
-}
-
-export type PaymentInfo = PaymentInfoError | PaymentInfoData;
+  amountCents: number;
+  paidFieldId: number;
+  paid: boolean;
+};
+export type PaymentStatus =
+  | "creating"
+  | "created"
+  | "capturing"
+  | "pending"
+  | "completed"
+  | "refunded"
+  | "reversed"
+  | "review";
+export type PaymentResult = {
+  type: "status";
+  status: PaymentStatus;
+  synced: boolean;
+};
+export type PaymentInfo =
+  | { type: "error"; message: string }
+  | PaymentResult
+  | { type: "data"; groupName: string; amountCents: number; clientId: string };

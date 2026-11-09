@@ -1,140 +1,153 @@
 import { wrapper } from "axios-cookiejar-support";
 import { CookieJar } from "tough-cookie";
 import { ChurchToolsClient } from "@churchtools/churchtools-client";
-import { getEnvForDomain } from "@/lib/domainenv";
-import { GroupMemberField, MemberField, Member } from "@/lib/types";
+import { z } from "zod";
+import { getTenant, referenceSchema, type PaymentReference } from "./config";
+import { sumEuroCents } from "./money";
+import {
+  groupMemberFieldSchema,
+  memberSchema,
+  type GroupMemberField,
+  type MemberField,
+  type Quote,
+} from "./types";
 
 export function getChurchToolsClient(domain: string) {
-  const token = getEnvForDomain("CT_TOKEN", decodeURIComponent(domain));
-  if (!token) {
-    return null;
-  }
-
-  const churchToolsClient = new ChurchToolsClient(
-    `https://${domain}.church.tools`,
-    token,
+  const tenant = getTenant(domain);
+  const client = new ChurchToolsClient(
+    tenant.churchToolsUrl,
+    tenant.churchToolsToken,
   );
-  churchToolsClient.setCookieJar(wrapper, new CookieJar());
-  return churchToolsClient;
+  client.setCookieJar((axios) => {
+    axios.defaults.maxRedirects = 0;
+    return wrapper(axios);
+  }, new CookieJar());
+  client.setRequestTimeout(10000);
+  return client;
 }
 
-export async function getMember(
-  churchToolsClient: ChurchToolsClient,
-  groupId: string,
-  personId: string,
-) {
-  const members: Member[] = await churchToolsClient.getAllPages(
-    `/groups/${groupId}/members`,
+export function selectField(fields: GroupMemberField[], names: string[]) {
+  const matches = fields.filter(
+    ({ type, field }) =>
+      type === "group" && names.includes(field.name.trim().toLowerCase()),
   );
-  return members.find((member) => member.personId === +personId);
+  if (matches.length !== 1)
+    throw new Error("Missing or ambiguous payment field");
+  return matches[0].field;
 }
 
-export function getPaidField(member: Member) {
-  return member.fields.find((field) =>
-    ["bezahlt", "paid"].includes(field.name.toLowerCase()),
-  );
-}
-
-export function extractEuroAmount(input: string): number | null {
-  const normalized = input.replace(",", ".");
-  const match = /(\d+(?:\.\d+)?)\s?€/.exec(normalized);
-
-  if (match && match[1]) {
-    return parseFloat(match[1]);
-  }
-
-  const amount = parseFloat(normalized);
-  if (!isNaN(amount)) {
-    return amount;
-  }
-
-  return null;
-}
-
-export function getAmountField(member: Member) {
-  return member.fields.find((field) =>
-    ["betrag", "preis", "buchung", "auswahl"].includes(
-      field.name.toLowerCase(),
-    ),
-  );
-}
-
-/**
- * Auswahlfelder liefern in /members nicht das Label, sondern die Options-ID
- * (z.B. "20169" für die Option "69"). Das Label steht nur in /memberfields.
- * Gibt null zurück, wenn eine Options-ID nicht aufgelöst werden kann – dann
- * lieber gar keinen Betrag als einen falschen.
- */
 export function resolveMemberFieldValues(
   memberField: MemberField,
-  groupMemberFields: GroupMemberField[],
+  fields: GroupMemberField[],
 ): string[] | null {
-  const options =
-    groupMemberFields.find(
-      (groupMemberField) =>
-        groupMemberField.type === "group" &&
-        groupMemberField.field?.id === memberField.id,
-    )?.field?.options ?? [];
-
+  const metadata = fields.find(
+    ({ type, field }) => type === "group" && field.id === memberField.id,
+  )?.field;
+  if (!metadata) return null;
   const value = memberField.value;
-  if (value === null || value === undefined) {
-    return [];
-  }
-
-  if (options.length === 0) {
-    return Array.isArray(value) ? value : [value];
-  }
-
-  const optionIds = Array.isArray(value) ? value : String(value).split(",");
-  const labels = optionIds
-    .map((optionId) => String(optionId).trim())
-    .filter((optionId) => optionId !== "")
-    .map(
-      (optionId) =>
-        options.find((option) => String(option.id) === optionId)?.name,
-    );
-
-  if (labels.some((label) => label === undefined)) {
-    return null;
-  }
-  return labels as string[];
-}
-
-export function sumEuroAmounts(values: string[]): number | null {
-  const amounts = values.map(extractEuroAmount);
-  if (amounts.length === 0 || amounts.some((amount) => amount === null)) {
-    return null;
-  }
-  return amounts.reduce((sum: number, amount) => sum + amount!, 0);
-}
-
-export async function getGroupMemberFields(
-  churchToolsClient: ChurchToolsClient,
-  groupId: string,
-) {
-  const fields: GroupMemberField[] = await churchToolsClient.get(
-    `/groups/${groupId}/memberfields`,
+  if (value === null) return [];
+  const options = metadata.options ?? [];
+  const isSelection = /select|option/i.test(metadata.fieldTypeCode);
+  if (!options.length)
+    return isSelection ? null : Array.isArray(value) ? value : [value];
+  const ids = (Array.isArray(value) ? value : value.split(",")).map((id) =>
+    id.trim(),
   );
-  return fields;
+  if (ids.some((id) => !id) || new Set(ids).size !== ids.length) return null;
+  const labels = ids.map(
+    (id) => options.find((option) => String(option.id) === id)?.name,
+  );
+  return labels.some((label) => label === undefined)
+    ? null
+    : (labels as string[]);
+}
+
+export function selectPaidField(fields: GroupMemberField[]) {
+  const matches = fields.filter(
+    ({ type, field }) =>
+      type === "group" &&
+      /(?:^|[^\p{L}\p{N}])(?:bezahlt|paid)(?=$|[^\p{L}\p{N}])/iu.test(
+        field.name,
+      ) &&
+      !/(?:unbezahlt|unpaid|nicht\s+bezahlt|not\s+paid)/iu.test(field.name),
+  );
+  if (matches.length !== 1)
+    throw new Error(
+      "Missing or ambiguous payment checkbox: expected one field containing the word 'Bezahlt' or 'Paid' (for example 'Bezahlt?'), excluding 'Unbezahlt' and 'Unpaid'",
+    );
+  return matches[0].field;
+}
+
+export async function loadQuote(reference: PaymentReference): Promise<Quote> {
+  referenceSchema.parse(reference);
+  const client = getChurchToolsClient(reference.domain);
+  const path = `/groups/${reference.groupId}`;
+  const [rawMember, rawFields] = await Promise.all([
+    client.get(`${path}/members/${reference.personId}`),
+    client.get(`${path}/memberfields`),
+  ]);
+  return quoteFromResponse(reference, rawMember, rawFields);
+}
+
+export function quoteFromResponse(
+  reference: PaymentReference,
+  rawMember: unknown,
+  rawFields: unknown,
+): Quote {
+  referenceSchema.parse(reference);
+  const member = memberSchema.parse(rawMember);
+  const fields = z.array(groupMemberFieldSchema).parse(rawFields);
+  if (
+    member.personId !== Number(reference.personId) ||
+    !["active", "requested", "waiting"].includes(member.groupMemberStatus)
+  )
+    throw new Error("Membership must be active, requested or waiting");
+  const paid = selectPaidField(fields);
+  if (paid.fieldTypeCode !== "checkbox")
+    throw new Error("Paid field must be a checkbox");
+  const amount = selectField(fields, ["betrag", "preis", "buchung", "auswahl"]);
+  const value = member.fields.find((field) => field.id === amount.id);
+  const paidMemberField = member.fields.find((field) => field.id === paid.id);
+  if (!paidMemberField) throw new Error("Paid field is not readable");
+  const paidValue = paidMemberField.value;
+  if (
+    paidValue !== "0" &&
+    paidValue !== "1" &&
+    paidValue !== null &&
+    paidValue !== undefined &&
+    paidValue !== ""
+  )
+    throw new Error("Invalid paid field");
+  const labels = value && resolveMemberFieldValues(value, fields);
+  const cents = labels && sumEuroCents(labels);
+  if (!cents) throw new Error("Invalid payment amount");
+  const personName =
+    `${member.person.domainAttributes.firstName} ${member.person.domainAttributes.lastName}`.trim();
+  if (!personName) throw new Error("Missing participant name");
+  return {
+    groupName: member.group.title,
+    personName,
+    amountCents: cents,
+    paidFieldId: paid.id,
+    paid: paidValue === "1",
+  };
 }
 
 export async function setPaid(
-  churchToolsClient: ChurchToolsClient,
-  groupId: string,
-  personId: string,
+  reference: PaymentReference,
+  fieldId: number,
+  paid: boolean,
 ) {
-  const fields = await getGroupMemberFields(churchToolsClient, groupId);
-  const paidField = fields.find(
-    (field) =>
-      field.field?.name?.toLowerCase()?.includes("bezahlt") ||
-      field.field?.name?.toLowerCase()?.includes("paid"),
+  referenceSchema.parse(reference);
+  const client = getChurchToolsClient(reference.domain);
+  const fields = z
+    .array(groupMemberFieldSchema)
+    .parse(await client.get(`/groups/${reference.groupId}/memberfields`));
+  const field = selectPaidField(fields);
+  if (field.id !== fieldId || field.fieldTypeCode !== "checkbox")
+    throw new Error("Paid field configuration changed");
+  await client.put(
+    `/groups/${reference.groupId}/members/${reference.personId}`,
+    { fields: { [fieldId]: paid ? "1" : "0" } },
   );
-  const paidFieldId = paidField?.field.id;
-  if (!paidFieldId) {
-    console.error("paidField not found");
-    return;
-  }
-  await churchToolsClient.put(`/groups/${groupId}/members/${personId}`, {
-    fields: { [paidFieldId]: "1" },
-  });
 }

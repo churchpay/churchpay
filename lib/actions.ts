@@ -1,163 +1,58 @@
 "use server";
 
-import { orders } from "@paypal/checkout-server-sdk";
-import { getEnvForDomain } from "@/lib/domainenv";
-import { getPayPalClient } from "@/lib/paypal";
-import { PaymentInfo } from "@/lib/types";
-import {
-  getAmountField,
-  getChurchToolsClient,
-  getGroupMemberFields,
-  getMember,
-  getPaidField,
-  resolveMemberFieldValues,
-  setPaid,
-  sumEuroAmounts,
-} from "./churchtools";
+import { z } from "zod";
+import { getTenant, referenceSchema } from "./config";
+import { rateLimit, referenceKey } from "./payment-store";
+import { paymentService } from "./payments";
+import type { PaymentInfo } from "./types";
 
-export async function getPaymentInfo(
-  domain: string,
-  groupId: string,
-  personId: string,
-): Promise<PaymentInfo> {
-  const churchToolsClient = getChurchToolsClient(domain);
-  const clientId = getEnvForDomain("PAYPAL_CLIENT_ID", domain);
-  if (!churchToolsClient || !clientId) {
-    return { type: "error", message: "Dieser Link ist leider nicht gültig." };
-  }
+const error = {
+  type: "error" as const,
+  message:
+    "Die Zahlungsinformationen konnten nicht geladen werden. Bitte prüfe deinen Link oder versuche es später erneut. Bei einer bereits bestätigten Zahlung wird der Status automatisch abgeglichen.",
+};
 
-  const [member, groupMemberFields] = await Promise.all([
-    getMember(churchToolsClient, groupId, personId),
-    getGroupMemberFields(churchToolsClient, groupId),
-  ]);
-  if (!member) {
-    return {
-      type: "error",
-      message:
-        "Du bist nicht in der Gruppe, hast du dich inzwischen abgemeldet?",
-    };
-  }
-
-  const paidField = getPaidField(member);
-  if (paidField?.value === "1") {
-    return { type: "error", message: "Du hast bereits bezahlt, vielen Dank!" };
-  }
-
-  const amountField = getAmountField(member);
-  if (!amountField?.value) {
-    return {
-      type: "error",
-      message:
-        "Leider kann ich den Zahlungsbetrag nicht bestimmen. Es fehlt das Feld 'Betrag'.",
-    };
-  }
-
-  const amountValues = resolveMemberFieldValues(amountField, groupMemberFields);
-  const amount = amountValues && sumEuroAmounts(amountValues);
-  if (!amount || amount < 0) {
-    return {
-      type: "error",
-      message:
-        "Leider kann ich den Zahlungsbetrag nicht bestimmen. Der Betrag steht nicht im Feld 'Betrag'.",
-    };
-  }
-
-  const { firstName, lastName } = member.person.domainAttributes;
-  const personName = `${firstName} ${lastName}`;
-
-  return {
-    type: "data",
-    groupName: member.group.title,
-    personName,
-    clientId,
-    amount,
-  };
+async function validateRequest(
+  input: unknown,
+  operation: string,
+  limit: number,
+) {
+  const access = referenceSchema.parse(input);
+  getTenant(access.domain);
+  await rateLimit(`${referenceKey(access)}:${operation}`, limit);
+  return access;
 }
 
-export async function createPayPalPayment(
-  domain: string,
-  groupId: string,
-  groupName: string,
-  personId: string,
-) {
+export async function getPaymentInfo(input: unknown): Promise<PaymentInfo> {
   try {
-    const client = getPayPalClient(domain);
-    const paymentInfo = await getPaymentInfo(domain, groupId, personId);
-    if (paymentInfo.type === "error") {
-      console.error(paymentInfo.message);
-      throw new Error(paymentInfo.message);
-    }
-
-    const createRequest = new orders.OrdersCreateRequest();
-    createRequest.headers["Prefer"] = "return=representation";
-    createRequest.requestBody({
-      intent: "CAPTURE",
-      purchase_units: [
-        {
-          amount: {
-            currency_code: "EUR",
-            value: paymentInfo.amount.toFixed(2),
-          },
-          description: `Anmeldung von ${paymentInfo.personName} (Person #${personId}) zu ${groupName} (#${groupId})`,
-          custom_id: `${groupId}-${personId}`,
-        },
-      ],
-    });
-    const response = await client!.execute(createRequest);
-
-    if (response.statusCode !== 201) {
-      console.error(
-        `PayPal order create error response for domain ${domain}, group ${groupId}, person ${personId}`,
-        response,
-      );
-      throw new Error(
-        "Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
-      );
-    }
-
-    return response.result.id;
-  } catch (err) {
-    console.error(
-      `Order create error for domain ${domain}, group ${groupId}, person ${personId}`,
-      err,
-    );
-    throw new Error(
-      "Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
-    );
+    const access = await validateRequest(input, "info", 60);
+    return await paymentService(access.domain).info(access);
+  } catch {
+    console.error(JSON.stringify({ event: "payment_info_failed" }));
+    return error;
   }
 }
 
-export async function capturePayPalPayment(
-  domain: string,
-  groupId: string,
-  personId: string,
-  orderId: string,
-) {
+export async function createPayPalPayment(input: unknown) {
   try {
-    const client = getPayPalClient(domain);
-    const captureRequest = new orders.OrdersCaptureRequest(orderId);
-    const response = await client!.execute(captureRequest);
+    const access = await validateRequest(input, "create", 10);
+    return await paymentService(access.domain).create(access);
+  } catch {
+    console.error(JSON.stringify({ event: "payment_create_failed" }));
+    return error;
+  }
+}
 
-    if (response.statusCode !== 201) {
-      console.error(
-        `PayPal order capture error response for domain ${domain}, group ${groupId}, person ${personId}`,
-        response,
-      );
-      throw new Error(
-        "Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
-      );
-    }
-
-    // Update payment status in ChurchTools
-    const churchToolsClient = getChurchToolsClient(domain);
-    await setPaid(churchToolsClient!, groupId, personId);
-  } catch (err) {
-    console.error(
-      `Order capture error for domain ${domain}, group ${groupId}, person ${personId}`,
-      err,
-    );
-    throw new Error(
-      "Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
-    );
+export async function capturePayPalPayment(input: unknown, orderId: unknown) {
+  try {
+    const access = await validateRequest(input, "capture", 30);
+    const id = z
+      .string()
+      .regex(/^[A-Z0-9]{1,36}$/)
+      .parse(orderId);
+    return await paymentService(access.domain).capture(access, id);
+  } catch {
+    console.error(JSON.stringify({ event: "payment_capture_failed" }));
+    return error;
   }
 }

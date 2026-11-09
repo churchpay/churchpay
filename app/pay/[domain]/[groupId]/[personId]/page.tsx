@@ -1,114 +1,21 @@
-"use client";
+import { referenceSchema } from "@/lib/config";
+import { PaymentPage } from "./payment-page";
 
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
-import {
-  capturePayPalPayment,
-  createPayPalPayment,
-  getPaymentInfo,
-} from "@/lib/actions";
+export const runtime = "nodejs";
+export const maxDuration = 120;
 
-export default function PayPage() {
-  const { domain, groupId, personId } = useParams() as {
-    domain: string;
-    groupId: string;
-    personId: string;
-  };
-
-  const [error, setError] = useState<string | null>();
-  const [success, setSuccess] = useState<boolean>(false);
-  const [groupName, setGroupName] = useState<string | null>();
-  const [amount, setAmount] = useState<number | null>();
-  const [clientId, setClientId] = useState<string | null>();
-
-  useEffect(() => {
-    getPaymentInfo(domain, groupId, personId).then((paymentInfo) => {
-      if (paymentInfo.type === "error") {
-        setError(paymentInfo.message);
-      }
-      if (paymentInfo.type === "data") {
-        setGroupName(paymentInfo.groupName);
-        setClientId(paymentInfo.clientId);
-        setAmount(paymentInfo.amount);
-      }
-    });
-  }, [domain, groupId, personId]);
-
-  if (error) {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ domain: string; groupId: string; personId: string }>;
+}) {
+  const access = referenceSchema.safeParse(await params);
+  if (!access.success)
     return (
-      <main className="flex flex-col items-center gap-4 p-24">
-        <h1 className="text-xl font-bold">Ein Fehler ist aufgetreten</h1>
-        <p>{error}</p>
+      <main className="mx-auto max-w-xl px-4 py-24">
+        <h1 className="text-xl font-bold">Ungültiger Zahlungslink</h1>
+        <p>Bitte verwende einen aktuellen Link aus deiner Bestätigungsmail.</p>
       </main>
     );
-  }
-
-  if (success) {
-    return (
-      <main className="flex flex-col items-center gap-4 p-24">
-        <h1 className="text-xl font-bold">Vielen Dank!</h1>
-        <p>Deine Zahlung war erfolgreich.</p>
-      </main>
-    );
-  }
-
-  if (groupName && clientId) {
-    return (
-      <main className="flex flex-col items-center px-4 py-24">
-        <h1 className="text-xl font-bold">Bezahlen für {groupName}</h1>
-        <div className="mb-8 mt-2 font-bold">{amount} €</div>
-        <PayPalScriptProvider
-          options={{
-            clientId,
-            currency: "EUR",
-            intent: "capture",
-          }}
-        >
-          <PayPalButtons
-            style={{
-              color: "gold",
-              shape: "rect",
-              label: "pay",
-              height: 50,
-            }}
-            className="w-72 max-w-full"
-            createOrder={async () => {
-              try {
-                const orderId = await createPayPalPayment(
-                  domain,
-                  groupId,
-                  groupName,
-                  personId,
-                );
-                return orderId;
-              } catch (err) {
-                setError((err as Error).message);
-              }
-            }}
-            onApprove={async (data) => {
-              try {
-                await capturePayPalPayment(
-                  domain,
-                  groupId,
-                  personId,
-                  data.orderID,
-                );
-                setSuccess(true);
-              } catch (err) {
-                setError((err as Error).message);
-              }
-            }}
-          />
-        </PayPalScriptProvider>
-      </main>
-    );
-  }
-
-  return (
-    <main className="flex flex-col items-center gap-4 p-24">
-      <div className="h-10 w-48 animate-pulse rounded-md bg-stone-100 dark:bg-stone-800" />
-      <div className="h-20 w-full max-w-screen-md animate-pulse rounded-md bg-stone-100 dark:bg-stone-800" />
-    </main>
-  );
+  return <PaymentPage key={JSON.stringify(access.data)} access={access.data} />;
 }

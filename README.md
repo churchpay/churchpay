@@ -30,7 +30,7 @@ Generate independent secrets with `openssl rand -hex 32`. Keep `.env` files, dat
 
 The group needs exactly one checkbox named `Bezahlt` or `Paid`, and exactly one group field named `Betrag`, `Preis`, `Buchung` or `Auswahl` (case insensitive). Ambiguous or inaccessible fields stop payment before capture. Only active memberships can pay.
 
-Prices support numbers such as `69`, `69,50`, `69.50`, `1.234,56 €`, and labels such as `Teilnahme 69 €`. Selection values are resolved against the group's option metadata before calculating a price. Missing choices, duplicate choices, negative amounts, non-finite numbers, exponent notation, sub-cent amounts, zero totals and totals above EUR 999,999.99 are rejected. Calculations and stored amounts use integer cents. A price or payment-field change after order creation requires operator review instead of silently charging a different amount.
+Prices accept a plain number or a label with exactly one amount marked with `€`, `Euro` or `EUR`. For example, `Erwachsene (69 €)`, `Kind 6-12 Jahre: 35 €`, `Doppelzimmer - 90 €`, `69 Euro` and `1.234,56 €` are supported. Other digits, parentheses and label hyphens are allowed; multiple marked prices such as `Frühbucher 59 € / regulär 69 €` are rejected. Selection values are resolved against the group's option metadata before calculating a price. Missing choices, duplicate choices, negative amounts, non-finite numbers, exponent notation, sub-cent amounts, zero totals and totals above EUR 999,999.99 are rejected. Calculations and stored amounts use integer cents. A price or payment-field change after order creation requires operator review instead of silently charging a different amount.
 
 ## Payment links from ChurchTools emails
 

@@ -78,6 +78,7 @@ export class PaymentService {
           captureRequested: false,
           synced: false,
           createdAt: this.now(),
+          paidAt: null,
           checkedAt: null,
         };
         await session.save(payment);
@@ -150,14 +151,14 @@ export class PaymentService {
         (payment.captureId && payment.captureId !== captureId)
       )
         throw new Error("Reversal capture mismatch");
-      this.verifyCapture(
-        payment,
-        await this.deps.paypal.readCapture(captureId),
-        captureId,
-      );
+      const capture = await this.deps.paypal.readCapture(captureId);
+      this.verifyCapture(payment, capture, captureId);
       if (payment.status !== "reversed") payment.synced = false;
       payment.status = "reversed";
       payment.captureId = captureId;
+      payment.paidAt ??= capture.createTime
+        ? Date.parse(capture.createTime)
+        : this.now();
       payment.checkedAt = this.now();
       await session.save(payment);
       return this.synchronize(payment, session);
@@ -256,6 +257,9 @@ export class PaymentService {
     if (status !== payment.status) payment.synced = false;
     payment.status = status;
     payment.captureId = capture.id;
+    payment.paidAt ??= capture.createTime
+      ? Date.parse(capture.createTime)
+      : this.now();
     payment.checkedAt = this.now();
     await session.save(payment);
     return this.synchronize(payment, session);

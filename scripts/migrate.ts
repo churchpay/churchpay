@@ -1,9 +1,9 @@
 import "dotenv/config";
-import { readFile } from "node:fs/promises";
+import { migrateDatabase } from "../lib/migrations";
 import { database } from "../lib/payment-store";
 
 async function main() {
-  await database().query(await readFile("migrations/001_payments.sql", "utf8"));
+  await migrateDatabase(database());
   console.log("ChurchPay database migration complete.");
 }
 main()

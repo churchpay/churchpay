@@ -36,6 +36,7 @@ const captureSchema = z.object({
   status: z.string(),
   amount: amountSchema,
   finalCapture: z.boolean(),
+  createTime: z.iso.datetime().optional(),
 });
 const orderSchema = z.object({
   id: z.string().min(1),

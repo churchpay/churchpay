@@ -184,6 +184,28 @@ test("pending capture is not paid; later completion is reconciled", async () => 
   assert.equal(f.state.captures, 1);
 });
 
+test("the payment timestamp comes from PayPal and refunds do not restart the 30-day window", async () => {
+  const f = fixture();
+  await f.service.create(reference);
+  assert.equal(f.payment()!.paidAt, null);
+  f.state.order!.status = "COMPLETED";
+  f.state.order!.purchaseUnits[0].payments = { captures: [{ id: "CAPTURE1" }] };
+  const paidAt = f.state.now - 2 * 86400000;
+  f.state.capture = {
+    id: "CAPTURE1",
+    status: "COMPLETED",
+    amount: { currencyCode: "EUR", value: "69.00" },
+    finalCapture: true,
+    createTime: new Date(paidAt).toISOString(),
+  };
+  await f.service.reconcile(reference);
+  assert.equal(f.payment()!.paidAt, paidAt);
+  f.state.now += 3 * 86400000;
+  f.state.capture.status = "REFUNDED";
+  await f.service.reconcile(reference);
+  assert.equal(f.payment()!.paidAt, paidAt);
+});
+
 test("successful capture survives ChurchTools failure and retries only synchronization", async () => {
   const f = fixture();
   f.state.syncFails = true;

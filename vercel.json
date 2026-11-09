@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "schedules": {
+    "payment-reconciliation": {
+      "schedule": "*/15 * * * *",
+      "timezone": "UTC",
+      "jitter": 15,
+      "path": "/api/reconcile",
+      "requestMethod": "GET"
+    }
+  }
+}

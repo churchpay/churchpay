@@ -28,7 +28,7 @@ Generate independent secrets with `openssl rand -hex 32`. Keep `.env` files, dat
 
 ## ChurchTools fields and prices
 
-The group needs exactly one checkbox named `Bezahlt` or `Paid`, and exactly one group field named `Betrag`, `Preis`, `Buchung` or `Auswahl` (case insensitive). Ambiguous or inaccessible fields stop payment before capture. Only active memberships can pay.
+The group needs exactly one checkbox containing the word `Bezahlt` or `Paid` (case insensitive), such as `Bezahlt?` or `Teilnahme bezahlt`. Negative names such as `Unbezahlt`, `Unpaid`, `Nicht bezahlt` and `Not paid` are excluded. Missing or ambiguous payment checkboxes produce an explicit configuration error. The amount must be in exactly one group field named `Betrag`, `Preis`, `Buchung` or `Auswahl`. Members with status `active`, `requested` or `waiting` can pay.
 
 Prices accept a plain number or a label with exactly one amount marked with `€`, `Euro` or `EUR`. For example, `Erwachsene (69 €)`, `Kind 6-12 Jahre: 35 €`, `Doppelzimmer - 90 €`, `69 Euro` and `1.234,56 €` are supported. Other digits, parentheses and label hyphens are allowed; multiple marked prices such as `Frühbucher 59 € / regulär 69 €` are rejected. Selection values are resolved against the group's option metadata before calculating a price. Missing choices, duplicate choices, negative amounts, non-finite numbers, exponent notation, sub-cent amounts, zero totals and totals above EUR 999,999.99 are rejected. Calculations and stored amounts use integer cents. A price or payment-field change after order creation requires operator review instead of silently charging a different amount.
 
@@ -39,6 +39,8 @@ Existing ChurchTools mail templates can continue to construct `/pay/{domain}/{gr
 ChurchPay is an external integration and cannot sign links inside ChurchTools templates. These ID-based links are not proof of identity: someone who guesses a valid combination can open its payment page and see the group title, amount and payment status. Participant names are not returned. Tenant allowlisting, canonical ID validation and shared rate limits remain in place, but do not make the links unguessable. The server obtains the amount and active membership from ChurchTools and verifies the bound PayPal order before recording payment.
 
 ## Payment verification and recovery
+
+For accounting, the PayPal description uses `Anmeldung von {firstName} {lastName} (Person #{personId}) zu {groupName} (#{groupId})`, with all values read on the server. Only the group title is shortened to fit PayPal's 127-character limit; the participant name and both IDs are preserved. If those fixed parts alone exceed the limit, order creation fails instead of losing identity. The name is sent to PayPal, never returned in the public payment information. UUID-based `customId` and `invoiceId` still bind the order to its ledger record.
 
 Before capture, ChurchPay checks the stored order ID, registration UUID, invoice ID, merchant ID, amount, currency and intent against PayPal's order. It checks the current ChurchTools price and unpaid state again. Only a full capture with status `COMPLETED` sets the checkbox. `PENDING` remains pending. Capture intent is persisted before the API call and the create/capture requests use stable PayPal idempotency keys.
 

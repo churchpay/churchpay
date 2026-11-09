@@ -62,6 +62,22 @@ export function resolveMemberFieldValues(
     : (labels as string[]);
 }
 
+export function selectPaidField(fields: GroupMemberField[]) {
+  const matches = fields.filter(
+    ({ type, field }) =>
+      type === "group" &&
+      /(?:^|[^\p{L}\p{N}])(?:bezahlt|paid)(?=$|[^\p{L}\p{N}])/iu.test(
+        field.name,
+      ) &&
+      !/(?:unbezahlt|unpaid|nicht\s+bezahlt|not\s+paid)/iu.test(field.name),
+  );
+  if (matches.length !== 1)
+    throw new Error(
+      "Missing or ambiguous payment checkbox: expected one field containing the word 'Bezahlt' or 'Paid' (for example 'Bezahlt?'), excluding 'Unbezahlt' and 'Unpaid'",
+    );
+  return matches[0].field;
+}
+
 export async function loadQuote(reference: PaymentReference): Promise<Quote> {
   referenceSchema.parse(reference);
   const client = getChurchToolsClient(reference.domain);
@@ -70,14 +86,23 @@ export async function loadQuote(reference: PaymentReference): Promise<Quote> {
     client.get(`${path}/members/${reference.personId}`),
     client.get(`${path}/memberfields`),
   ]);
+  return quoteFromResponse(reference, rawMember, rawFields);
+}
+
+export function quoteFromResponse(
+  reference: PaymentReference,
+  rawMember: unknown,
+  rawFields: unknown,
+): Quote {
+  referenceSchema.parse(reference);
   const member = memberSchema.parse(rawMember);
   const fields = z.array(groupMemberFieldSchema).parse(rawFields);
   if (
     member.personId !== Number(reference.personId) ||
-    member.groupMemberStatus !== "active"
+    !["active", "requested", "waiting"].includes(member.groupMemberStatus)
   )
-    throw new Error("Inactive group membership");
-  const paid = selectField(fields, ["bezahlt", "paid"]);
+    throw new Error("Membership must be active, requested or waiting");
+  const paid = selectPaidField(fields);
   if (paid.fieldTypeCode !== "checkbox")
     throw new Error("Paid field must be a checkbox");
   const amount = selectField(fields, ["betrag", "preis", "buchung", "auswahl"]);
@@ -96,8 +121,12 @@ export async function loadQuote(reference: PaymentReference): Promise<Quote> {
   const labels = value && resolveMemberFieldValues(value, fields);
   const cents = labels && sumEuroCents(labels);
   if (!cents) throw new Error("Invalid payment amount");
+  const personName =
+    `${member.person.domainAttributes.firstName} ${member.person.domainAttributes.lastName}`.trim();
+  if (!personName) throw new Error("Missing participant name");
   return {
     groupName: member.group.title,
+    personName,
     amountCents: cents,
     paidFieldId: paid.id,
     paid: paidValue === "1",
@@ -114,7 +143,7 @@ export async function setPaid(
   const fields = z
     .array(groupMemberFieldSchema)
     .parse(await client.get(`/groups/${reference.groupId}/memberfields`));
-  const field = selectField(fields, ["bezahlt", "paid"]);
+  const field = selectPaidField(fields);
   if (field.id !== fieldId || field.fieldTypeCode !== "checkbox")
     throw new Error("Paid field configuration changed");
   await client.put(

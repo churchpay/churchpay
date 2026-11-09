@@ -41,8 +41,9 @@ function fixture() {
     now: Date.now(),
   };
   const paypal: PayPalGateway = {
-    async create(value, name) {
-      assert.equal(name, "Real group");
+    async create(value, quote) {
+      assert.equal(quote.groupName, "Real group");
+      assert.equal(quote.personName, "Test Participant");
       state.creates++;
       state.order = {
         id: "ORDER1",
@@ -89,6 +90,7 @@ function fixture() {
     paypal,
     quote: async () => ({
       groupName: "Real group",
+      personName: "Test Participant",
       amountCents: state.amountCents,
       paidFieldId: 5,
       paid: state.paid,

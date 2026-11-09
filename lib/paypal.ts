@@ -9,6 +9,23 @@ import { z } from "zod";
 import type { Tenant } from "./config";
 import { formatPayPalAmount } from "./money";
 import type { Payment } from "./payment-store";
+import type { Quote } from "./types";
+
+export function paymentDescription(
+  payment: Pick<Payment, "groupId" | "personId">,
+  quote: Pick<Quote, "groupName" | "personName">,
+) {
+  const prefix = `Anmeldung von ${quote.personName} (Person #${payment.personId}) zu `;
+  const suffix = ` (#${payment.groupId})`;
+  const available = 127 - Array.from(prefix + suffix).length;
+  if (available < 0)
+    throw new Error(
+      "Participant name and IDs exceed PayPal's description limit",
+    );
+  return (
+    prefix + Array.from(quote.groupName).slice(0, available).join("") + suffix
+  );
+}
 
 const amountSchema = z.object({
   currencyCode: z.string(),
@@ -43,7 +60,7 @@ const orderSchema = z.object({
 export type PayPalOrder = z.infer<typeof orderSchema>;
 export type PayPalCapture = z.infer<typeof captureSchema>;
 export interface PayPalGateway {
-  create(payment: Payment, groupName: string): Promise<string>;
+  create(payment: Payment, quote: Quote): Promise<string>;
   read(orderId: string): Promise<PayPalOrder>;
   capture(orderId: string, requestId: string): Promise<void>;
   readCapture(captureId: string): Promise<PayPalCapture>;
@@ -68,7 +85,7 @@ export function paypalGateway(tenant: Tenant): PayPalGateway {
   const orders = new OrdersController(client);
   const payments = new PaymentsController(client);
   return {
-    async create(payment, groupName) {
+    async create(payment, quote) {
       const response = await orders.createOrder({
         paypalRequestId: `${payment.id}-create`,
         prefer: "return=representation",
@@ -81,7 +98,7 @@ export function paypalGateway(tenant: Tenant): PayPalGateway {
                 value: formatPayPalAmount(payment.amountCents),
               },
               payee: { merchantId: tenant.merchantId },
-              description: groupName.slice(0, 127),
+              description: paymentDescription(payment, quote),
               customId: payment.id,
               invoiceId: `churchpay-${payment.id}`,
             },

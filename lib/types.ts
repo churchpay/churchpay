@@ -7,6 +7,12 @@ export const memberFieldSchema = z.object({
 });
 export const memberSchema = z.object({
   personId: z.number().int().positive(),
+  person: z.object({
+    domainAttributes: z.object({
+      firstName: z.string().trim(),
+      lastName: z.string().trim(),
+    }),
+  }),
   group: z.object({ title: z.string().min(1) }),
   groupMemberStatus: z.string(),
   fields: z.array(memberFieldSchema),
@@ -28,6 +34,7 @@ export type MemberField = z.infer<typeof memberFieldSchema>;
 export type GroupMemberField = z.infer<typeof groupMemberFieldSchema>;
 export type Quote = {
   groupName: string;
+  personName: string;
   amountCents: number;
   paidFieldId: number;
   paid: boolean;

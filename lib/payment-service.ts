@@ -100,7 +100,7 @@ export class PaymentService {
           ? { type: "order", orderId: payment.orderId }
           : result;
       }
-      payment.orderId = await this.deps.paypal.create(payment, quote.groupName);
+      payment.orderId = await this.deps.paypal.create(payment, quote);
       payment.status = "created";
       await session.save(payment);
       return { type: "order", orderId: payment.orderId };

@@ -20,9 +20,9 @@ npm run db:migrate
 npm run dev
 ```
 
-For production, run `npm run build` and `npm start`, with the same environment variables supplied by your hosting platform. Configuration is validated when the Node.js server starts. Schema migration is an explicit deployment step, not a side effect of processing a payment. Back up the database and use TLS for remote database connections with certificate verification enabled.
+For production, run `npm run build` and `npm start`, with the same environment variables supplied by your hosting platform. `DATABASE_URL` is globally required and validated at startup. Invalid tenant settings are logged as `tenant_configuration_invalid` with the tenant slug, without credentials, and only that tenant's requests fail. Malformed allowlist entries are skipped and logged as `tenant_domain_invalid`; healthy tenants remain available. Schema migration is an explicit deployment step, not a side effect of processing a payment. Back up the database and use TLS for remote database connections with certificate verification enabled.
 
-`CHURCHPAY_DOMAINS` is the explicit list of supported ChurchTools subdomains. For `example-1.church.tools`, use `example-1` and the environment suffix `EXAMPLE_1`. Dots, slashes, percent escapes, underscores and URL fragments are rejected. Credentials are never selected from arbitrary hostnames. `PAYPAL_ENV_<TENANT>` must explicitly be `sandbox` or `live`; `NODE_ENV` does not choose the payment environment.
+`CHURCHPAY_DOMAINS` is the explicit list of supported ChurchTools subdomains. For `example-1.church.tools`, use `example-1` and the environment suffix `EXAMPLE_1`. Dots, slashes, percent escapes, underscores and URL fragments are rejected. Credentials are never selected from arbitrary hostnames. Each setting first uses the digit-preserving suffix; if absent, its old suffix (every non-letter replaced by `_`, e.g. `GEMEINDE_` for `gemeinde1`) is accepted. An explicitly empty or invalid canonical setting fails validation instead of falling back. If multiple allowed tenants share an old suffix, use canonical settings for them to avoid sharing credentials accidentally. `PAYPAL_ENV_<TENANT>` must explicitly be `sandbox` or `live`; `NODE_ENV` does not choose the payment environment.
 
 Generate independent secrets with `openssl rand -hex 32`. Keep `.env` files, database credentials and webhook IDs out of source control. The public PayPal client ID is sent to the browser; the client secret and ChurchTools token stay on the server.
 
@@ -65,7 +65,7 @@ Rate limits are persisted in PostgreSQL and shared across app instances. Apply i
 ## Upgrading from 0.3
 
 1. Set up PostgreSQL, configure the tenant allowlist and all required per-tenant settings, and run the migration.
-2. Configure the correct sandbox or live environment explicitly. The old `USE_SANDBOX` variable is no longer used. Numeric tenant suffixes now preserve digits.
+2. Configure the correct sandbox or live environment explicitly. The old `USE_SANDBOX` variable is no longer used. Numeric tenant suffixes preserve digits, with an unambiguous fallback to the old non-letter-to-underscore suffix for existing variable names.
 3. Keep existing ID-based confirmation-email links. Confirm that the ChurchTools version supports `GET /groups/{groupId}/members/{personId}`.
 4. Set up verified PayPal webhooks and scheduled reconciliation. Exercise the full flow in the sandbox before switching live credentials.
 5. Reconcile any outstanding orders from the previous deployment manually. They have no record in the new payment ledger and are intentionally not accepted as new-format payments.

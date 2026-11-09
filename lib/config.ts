@@ -16,24 +16,53 @@ export const referenceSchema = z.object({
 export type PaymentReference = z.infer<typeof referenceSchema>;
 
 export function configuredDomains() {
-  const domains = z
-    .array(domainSchema)
-    .min(1)
-    .parse(
-      process.env.CHURCHPAY_DOMAINS?.split(",").map((value) => value.trim()),
-    );
-  if (new Set(domains).size !== domains.length)
-    throw new Error("Duplicate ChurchPay domain");
+  const domains: string[] = [];
+  for (const value of (process.env.CHURCHPAY_DOMAINS ?? "").split(",")) {
+    const parsed = domainSchema.safeParse(value.trim());
+    if (!parsed.success) {
+      console.error(JSON.stringify({ event: "tenant_domain_invalid" }));
+      continue;
+    }
+    if (!domains.includes(parsed.data)) domains.push(parsed.data);
+  }
   return domains;
 }
 
 export function getTenant(domain: string) {
   domainSchema.parse(domain);
-  if (!configuredDomains().includes(domain))
-    throw new Error("Unknown ChurchPay domain");
-  // Digits are preserved. Hyphens cannot collide with underscores in valid domains.
+  const domains = configuredDomains();
+  if (!domains.includes(domain)) throw new Error("Unknown ChurchPay domain");
+  try {
+    return readTenant(domain, domains);
+  } catch {
+    // Zod errors may contain credentials: log only the validated tenant slug.
+    console.error(
+      JSON.stringify({ event: "tenant_configuration_invalid", domain }),
+    );
+    throw new Error(`Invalid configuration for ChurchPay tenant '${domain}'`);
+  }
+}
+
+function readTenant(domain: string, domains: string[]) {
   const suffix = domain.toUpperCase().replaceAll("-", "_");
-  const value = (name: string) => process.env[`${name}_${suffix}`];
+  const legacySuffix = (value: string) =>
+    value.toUpperCase().replace(/[^A-Z]/g, "_");
+  const value = (name: string) => {
+    const canonical = process.env[`${name}_${suffix}`];
+    if (canonical !== undefined) return canonical;
+    const legacy = process.env[`${name}_${legacySuffix(domain)}`];
+    if (
+      legacy !== undefined &&
+      domains.filter(
+        (candidate) => legacySuffix(candidate) === legacySuffix(domain),
+      ).length > 1
+    ) {
+      throw new Error(
+        "Ambiguous legacy tenant suffix; configure digit-preserving variables",
+      );
+    }
+    return legacy;
+  };
   const required = z.string().trim().min(1);
   return {
     domain,
@@ -54,5 +83,11 @@ export function validateConfiguration() {
       ["postgres:", "postgresql:"].includes(new URL(value).protocol),
     )
     .parse(process.env.DATABASE_URL);
-  configuredDomains().forEach(getTenant);
+  for (const domain of configuredDomains()) {
+    try {
+      getTenant(domain);
+    } catch {
+      /* Invalid tenants are logged and fail only their own requests. */
+    }
+  }
 }
